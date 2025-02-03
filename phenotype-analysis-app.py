@@ -10,7 +10,7 @@ st.set_page_config(layout="wide")
 
 fitness_dict = {}
 
-fitness_files = glob.glob("../data/fitness/*xlsx")
+fitness_files = glob.glob("data/fitness/*xlsx")
 fitness_files = sorted(fitness_files)
 
 suffixes = sorted([ file[-8:-5] for file in fitness_files ])
@@ -82,11 +82,14 @@ fitness_dict = { k: process_df(v) for k, v in fitness_dict.items() }
 
 plant_pheno_tab, fitness_tab = st.tabs(["Plant phenotypes", "Bacterial fitness"])
 
+def iqr(x):
+    return x.quantile(0.75) - x.quantile(0.25)
+
 with plant_pheno_tab:
 
     st.write('## Plant phenotypes')
     
-    phenotypes_df_raw = pd.read_csv("../data/phenotype/Phenotyping_data.csv")
+    phenotypes_df_raw = pd.read_csv("data/phenotype/Phenotyping_data.csv")
     phenotypes_df = phenotypes_df_raw.copy()
     phenotypes_df['n_replica'] = phenotypes_df.Treatment.apply(lambda x: x.split(".")[1] if "." in x else 1).astype(int)
     phenotypes_df['Treatment'] = phenotypes_df.Treatment.apply(lambda x: x.split(".")[0] if "." in x else x)
@@ -106,33 +109,73 @@ with plant_pheno_tab:
         generation = st.slider(label="Generation", min_value=1, max_value=78)
 
     plot_type = st.radio("Plot ratio?", options=["Absolute value", "Ratio to NB"])        
-
-    fig, ax = plt.subplots(1, 3, figsize=(25, 5)) 
-    phenotypes_df_red = phenotypes_df.query("n_replica == @replica and Treatment == @treatment").sort_values("Batch")
-    phenotypes_df_red = phenotypes_df_red.groupby(['Treatment', 'n_replica', 'Batch']).agg("mean").reset_index()
     
-    phenotypes_df_red_nb = phenotypes_df.query("n_replica == 1 and Treatment == 'NB'").sort_values("Batch")
-    phenotypes_df_red_nb = phenotypes_df_red_nb.groupby(['Treatment', 'n_replica', 'Batch']).agg("mean").reset_index()
+    # scatter = st.radio("Scatter", ["scatter", "line (avg)"])
+    phenotypes_df_red_ = phenotypes_df.query("n_replica == @replica and Treatment == @treatment").sort_values("Batch")
+    phenotypes_df_red_nb_ = phenotypes_df.query("n_replica == 1 and Treatment == 'NB'").sort_values("Batch")
+    phenotypes_df_red = phenotypes_df_red_.groupby(['Treatment', 'n_replica', 'Batch']).agg("median").reset_index()
+    phenotypes_df_red_nb = phenotypes_df_red_nb_.groupby(['Treatment', 'n_replica', 'Batch']).agg("median").reset_index()
+    
+    # phenotypes_df_red_std = phenotypes_df_red_.groupby(['Treatment', 'n_replica', 'Batch']).agg("std").reset_index()
+    # phenotypes_df_red_nb_std = phenotypes_df_red_nb_.groupby(['Treatment', 'n_replica', 'Batch']).agg("std").reset_index()
+    phenotypes_df_red_std = phenotypes_df_red_.groupby(['Treatment', 'n_replica', 'Batch']).agg(iqr).reset_index()
+    phenotypes_df_red_nb_std = phenotypes_df_red_nb_.groupby(['Treatment', 'n_replica', 'Batch']).agg(iqr).reset_index()
+
+    phenotypes_df_red_min = phenotypes_df_red_.groupby(['Treatment', 'n_replica', 'Batch']).agg("min").reset_index()
+    phenotypes_df_red_max = phenotypes_df_red_.groupby(['Treatment', 'n_replica', 'Batch']).agg("max").reset_index()
+    phenotypes_df_red_nb_min = phenotypes_df_red_nb_.groupby(['Treatment', 'n_replica', 'Batch']).agg("min").reset_index()
+    phenotypes_df_red_nb_max = phenotypes_df_red_nb_.groupby(['Treatment', 'n_replica', 'Batch']).agg("max").reset_index()
+    
+
+    phenotypes = [('PR_Length', 8), ('LR_number', 30), ('LR_Density', 9)]
+    # phenotypes = [('LR_number', 30)]
+
+    fig, ax = plt.subplots(1, len(phenotypes), figsize=(25, 5)) 
 
     if plot_type == "Absolute value":        
         
         add_nb = st.checkbox("Add NB?")        
         T = phenotypes_df_red.Batch
 
-        for i, (phenotype, ylim) in enumerate([('PR_Length', 8), ('LR_number', 30), ('LR_Density', 9)]):
-            Y = phenotypes_df_red[phenotype]
-            Y_ctrl = phenotypes_df_red_nb[phenotype]
+        # for i, (phenotype, ylim) in enumerate(phenotypes):
+        for i, (phenotype, ylim) in enumerate(phenotypes):
+            
+            try:
+                ax_i = ax[i]
+            except:
+                ax_i = ax
+
+            Y           = phenotypes_df_red[phenotype]
+            Y_ctrl      = phenotypes_df_red_nb[phenotype]
+            stdY        = phenotypes_df_red_std[phenotype]
+            stdY_ctrl   = phenotypes_df_red_nb_std[phenotype]
+            Ymin        = phenotypes_df_red_min[phenotype]
+            Ymax        = phenotypes_df_red_max[phenotype]
+            Yctrl_min   = phenotypes_df_red_nb_min[phenotype]
+            Yctrl_max   = phenotypes_df_red_nb_max[phenotype]
         
             if smoothing != 0:
                 Y = gaussian_filter1d(Y, smoothing)
                 Y_ctrl = gaussian_filter1d(Y_ctrl, smoothing)
 
-            ax[i].plot(range(len(Y)), Y, color="blue")               
-            if add_nb: ax[i].plot(range(len(Y_ctrl)), Y_ctrl, color="red")
+            print(stdY)
+            ax_i.plot(range(len(Y)), Y, color="blue")               
+            ax_i.fill_between(range(len(Y)), Y - stdY, Y + stdY, alpha=0.2, label="Std Dev")
+            # ax_i.fill_between(range(len(Y)), Ymin, Ymax, alpha=0.2, label="Std Dev")
+            # ax_i.scatter(range(len(Y)), Y, color="blue")               
+
+            if add_nb: 
+                ax_i.plot(range(len(Y_ctrl)), Y_ctrl, color="red")
+                # ax_i.fill_between(range(len(Y_ctrl)), Yctrl_min, Yctrl_max, alpha=0.2, label="Std Dev", color="red")
+                ax_i.fill_between(range(len(Y_ctrl)), Y_ctrl-stdY_ctrl, Y_ctrl+stdY_ctrl, alpha=0.2, label="Std Dev", color="red")
+
     
-            ax[i].set_title(phenotype)
-            ax[i].set_xlabel('Batch (generation)')
-            ax[i].set_ylim(0, ylim)
+            ax_i.set_title(phenotype)
+            ax_i.set_xlabel('Batch (generation)')
+            # ax_i.set_ylim(0, ylim)
+            
+            ax_i.set_ylim(min(Ymin.min(), Yctrl_min.min()), max(Yctrl_max.max(), Ymax.max()))
+            
         
     elif plot_type == "Ratio to NB":
 
