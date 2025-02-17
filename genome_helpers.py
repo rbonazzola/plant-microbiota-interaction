@@ -4,6 +4,7 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import re
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -11,9 +12,12 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 import statsmodels.api as sm
 
-def read_annotation_data(gff_file, type="CDS"):
+
+
+def read_annotation_data(gff_file, type="CDS", parse_attributes=False):
 
     col_names = ["seqid", "source", "type", "start", "end", "score", "strand", "phase", "attributes"]
+    
     gff_data = pd.read_csv(
         gff_file,
         sep="\t",
@@ -22,14 +26,11 @@ def read_annotation_data(gff_file, type="CDS"):
         dtype={"seqid": str, "source": str, "type": str, "start": int, "end": int, "score": str, "strand": str, "phase": str, "attributes": str},
     )
     
-    # Preview the data
-    print(gff_data.head())
-    
-    # Example: Extracting genes
     genes = gff_data[gff_data['type'] == type]
-    # gff_data['contig'] = gff_data.seqid.apply(lambda x: x.split("_")[1].split(".")[0])
-    gff_data.attributes = gff_data.attributes.apply(lambda x: x.split(";"))
-    gff_data.attributes = gff_data.attributes.apply(lambda xx: {x.split("=")[0]:x.split("=")[1] for x in xx})
+    
+    if parse_attributes:
+        gff_data.attributes = gff_data.attributes.apply(lambda x: x.split(";"))
+        gff_data.attributes = gff_data.attributes.apply(lambda xx: {x.split("=")[0]:x.split("=")[1] for x in xx})
     
     return gff_data
 
