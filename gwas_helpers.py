@@ -75,11 +75,22 @@ def run_gwas(data, snps, phenotypes):
     return results_df
 
 
+def annotation_to_dict(annotation): 
+    
+    if annotation is None:
+        return dict(ID="", locus="")
+    else:
+        return dict(item.split('=') for item in d.strip(';').split(';'))
+
+
 def annotate_results(results_df, annotation_df):
 
     annotations = list()
 
     count = 0
+    assert len(results_df.SNP.iloc[0]) == 2, "There should be a SNP columns with (contig, position)"
+    assert "contig" in annotation_df.columns, "There must be a contig column in the annotation file"
+    
     for i, row in results_df.iterrows():
     
         variant_contig = row.SNP[0] # row.contig
@@ -102,9 +113,27 @@ def annotate_results(results_df, annotation_df):
             print("Variant does not belong to any row.")
             
     print(count)
+    print(f"{count} out of {results_df.shape[0]} did not match any annotation.")
     annotations_df = pd.Series(annotations).apply(lambda x: None if x is None else x.to_list()[0])
     return annotations_df
 
+
+def compute_distance(signed_dist1, signed_dist2):
+
+    if signed_dist1 * signed_dist2 < 0:
+        return 0
+    else:
+        return min(abs(signed_dist1), abs(signed_dist2))
+
+
+def get_closest_gene(df):
+
+    dist_to_start = df.start - df.position
+    dist_to_end   = df.end   - df.position
+    pp = pd.DataFrame([dist_to_start, dist_to_end]).T
+    
+    min_index = pp.apply(lambda row: compute_distance(row[0], row[1]), axis=1).argmin()
+    return df.iloc[min_index]
 
 
 def manhattan_static(results_df):
@@ -157,17 +186,18 @@ def manhattan_static(results_df):
     plt.show()
 
 
-def manhattan_interactive(results_df):
+def manhattan_interactive(results_df, annotation="annotation"):
 
-    results_df['annotation_as_str'] = results_df.annotation.apply(lambda x: "None" if x is None else str(x.get("product", "None")))
+    assert annotation in results_df.columns, f"A column named {annotation} must be present"
+    assert isinstance(results_df[annotation].iloc[0], str), f"The {annotation} column must be a str"
         
     # Assuming results_df is already defined and contains columns: contig, position, p_value, annotation
     # Sort chromosomes naturally (1, 2, ..., X)
     results_df['Chromosome'] = pd.Categorical(
         results_df['contig'], 
         categories=sorted(results_df['contig'].unique(), key=lambda x: (not x.isdigit(), x)),
-        ordered=True
-    )
+        ordered=True)
+    
     results_df = results_df.sort_values(['Chromosome', 'position'])
     
     # Add a column for -log10(P-value)
@@ -179,7 +209,7 @@ def manhattan_interactive(results_df):
     ticks = []
     
     for chrom in results_df['Chromosome'].cat.categories:
-        chrom_data = results_df[results_df['Chromosome'] == chrom]
+        chrom_data = results_df.query('Chromosome == @chrom')
         chrom_offsets[chrom] = cumulative_position
         results_df.loc[results_df['Chromosome'] == chrom, 'Cumulative Position'] = (
             chrom_data['position'] + cumulative_position
@@ -197,7 +227,7 @@ def manhattan_interactive(results_df):
             'Chromosome': True,
             'position': True,
             'p_value': True,
-            'annotation_as_str': True,  # Include annotation in hover data
+            'annotation': True,  # Include annotation in hover data
             'Cumulative Position': False  # Hide cumulative position from hover
         },
         title='Interactive Manhattan Plot',
